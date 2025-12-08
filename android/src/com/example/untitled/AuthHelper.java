@@ -2,6 +2,7 @@ package com.example.untitled;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.net.Uri;
 import android.util.Log;
 
 import com.google.android.gms.auth.api.signin.*;
@@ -21,20 +22,25 @@ public class AuthHelper {
     private static final String CLIENT_ID =
             "672191165584-lrc87gr0ip4ipra19s7k67tq8traagnm.apps.googleusercontent.com";
     private static final int RC_SIGN_IN = 100;
+    private static final int RC_PICK_FILES = 200;
 
     private final Activity activity;
     private GoogleSignInClient googleSignInClient;
 
     public AuthHelper(Activity activity) {
         this.activity = activity;
+
         GoogleSignInOptions gso = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()
                 .requestIdToken(CLIENT_ID)
                 .requestServerAuthCode(CLIENT_ID, true)
                 .requestScopes(new Scope("https://www.googleapis.com/auth/drive"))
                 .build();
+
         googleSignInClient = GoogleSignIn.getClient(activity, gso);
     }
+
+
     public void startLogin() {
         googleSignInClient.signOut().addOnCompleteListener(task -> {
             Intent signInIntent = googleSignInClient.getSignInIntent();
@@ -48,6 +54,7 @@ public class AuthHelper {
     }
 
     public void handleActivityResult(int requestCode, int resultCode, Intent data) {
+
         if (requestCode == RC_SIGN_IN) {
             Task<GoogleSignInAccount> task = GoogleSignIn.getSignedInAccountFromIntent(data);
             try {
@@ -57,8 +64,42 @@ public class AuthHelper {
             } catch (ApiException e) {
                 Log.e("AUTH", "Sign-in failed", e);
             }
+            return;
+        }
+
+        if (requestCode == RC_PICK_FILES && resultCode == Activity.RESULT_OK) {
+
+            if (data == null) return;
+
+            if (data.getClipData() != null) {
+                int count = data.getClipData().getItemCount();
+                String[] paths = new String[count];
+
+                for (int i = 0; i < count; i++) {
+                    Uri uri = data.getClipData().getItemAt(i).getUri();
+                    paths[i] = uri.toString();
+                }
+
+                QtBridge.onFilesSelected(paths);
+                return;
+            }
+
+            if (data.getData() != null) {
+                Uri uri = data.getData();
+                QtBridge.onFilesSelected(new String[]{ uri.toString() });
+            }
         }
     }
+
+    public void pickFiles() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+
+        activity.startActivityForResult(intent, RC_PICK_FILES);
+    }
+
     private void exchangeAuthCodeForTokens(String authCode) {
         new Thread(() -> {
             try {

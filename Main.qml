@@ -1,40 +1,46 @@
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 2.15
 
-ApplicationWindow {
+ApplicationWindow  {
+    width: 360
+    height: 640
     visible: true
-    width: 400
-    height: 400
-    title: "Drive Manager"
+    title: qsTr("Timer")
+    StackView{
+        id: stack
+        anchors.fill: parent
+        pushEnter: null
+        pushExit: null
+        popEnter: null
+        popExit: null
+        replaceEnter: Transition {
+                PropertyAnimation {
+                    property: "y"
+                    from: stack.height
+                    to: 0
+                    duration: 300
+                    easing.type: Easing.OutCubic
+                }
+            }
+        replaceExit: Transition {
+                PropertyAnimation {
+                    property: "y"
+                    from: 0
+                    to: -stack.height
+                    duration: 300
+                    easing.type: Easing.InCubic
+                }
+            }
 
-    Button {
-        text: "Login & request tokens"
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: 100
-        onClicked: backend.startAuth()
-    }
-
-    Button {
-        text: "Show tokens"
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: 300
-        onClicked: {
-            console.log("Access:", backend.getAccessToken())
-            console.log("Refresh:", backend.getRefreshToken())
-            backend.printTokens()
+        Component.onCompleted: {
+                stack.push("Logger.qml")
         }
     }
 
-    Button {
-        text: "list files"
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: 400
-        onClicked: backend.listfiles()
-    }
-    Button {
-        text: "print token"
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: 600
-        onClicked: backend.printAccess()
+    Connections{
+        target: cppBackend;
+        onLoginSuccess:{
+            stack.push("MainScreen.qml")
+        }
     }
 }

@@ -1,7 +1,11 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QDebug>
 #include "backend.h"
+
+// Эта переменная определена в backend_jni.cpp
+extern Backend* backend;
 
 int main(int argc, char *argv[])
 {
@@ -9,18 +13,27 @@ int main(int argc, char *argv[])
 
     QQmlApplicationEngine engine;
 
-    Backend backend;
-    engine.rootContext()->setContextProperty("backend", &backend);
+    // создаём единственный экземпляр Backend
+    Backend backendInstance;
+    qDebug() << "Backend instance pointer:" << &backendInstance;
+
+    // инициализируем глобальный указатель для JNI
+    backend = &backendInstance;
+
+    // пробрасываем backend в QML
+    engine.rootContext()->setContextProperty("backend", &backendInstance);
 
     QObject::connect(
         &engine,
         &QQmlApplicationEngine::objectCreationFailed,
         &app,
         []() { QCoreApplication::exit(-1); },
-        Qt::QueuedConnection);
+        Qt::QueuedConnection
+        );
+
     engine.loadFromModule("untitled", "Main");
 
-    backend.printTokens();
+    backendInstance.printTokens();
 
     return app.exec();
 }
