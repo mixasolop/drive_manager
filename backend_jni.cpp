@@ -8,9 +8,7 @@
 Backend* backend = nullptr;
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_example_untitled_QtBridge_onFilesSelected(JNIEnv *env,
-                                                   jclass,
-                                                   jobjectArray array)
+Java_com_example_untitled_QtBridge_onFilesSelected(JNIEnv *env, jclass, jobjectArray array)
 {
     if (!backend) {
         qWarning() << "Backend instance is null!";
@@ -35,5 +33,21 @@ Java_com_example_untitled_QtBridge_onFilesSelected(JNIEnv *env,
         "onFilesSelected",
         Qt::QueuedConnection,
         Q_ARG(QStringList, paths)
+        );   
+}
+
+
+extern Backend* backend;
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_untitled_QtBridge_onLoginFinished(JNIEnv*, jclass)
+{
+    if (!backend) return;
+
+    QMetaObject::invokeMethod(
+        backend,
+        "onLoginFinished",
+        Qt::QueuedConnection
         );
 }
+

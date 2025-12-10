@@ -40,7 +40,6 @@ public class AuthHelper {
         googleSignInClient = GoogleSignIn.getClient(activity, gso);
     }
 
-
     public void startLogin() {
         googleSignInClient.signOut().addOnCompleteListener(task -> {
             Intent signInIntent = googleSignInClient.getSignInIntent();
@@ -57,10 +56,17 @@ public class AuthHelper {
 
         if (requestCode == RC_SIGN_IN) {
             Task<GoogleSignInAccount> task = GoogleSignIn.getSignedInAccountFromIntent(data);
+
             try {
                 GoogleSignInAccount account = task.getResult(ApiException.class);
                 String authCode = account.getServerAuthCode();
-                exchangeAuthCodeForTokens(authCode);
+
+                String name = account.getDisplayName();
+                String email = account.getEmail();
+
+                exchangeAuthCodeForTokens(authCode, name, email);
+                QtBridge.onLoginFinished();
+
             } catch (ApiException e) {
                 Log.e("AUTH", "Sign-in failed", e);
             }
@@ -100,7 +106,9 @@ public class AuthHelper {
         activity.startActivityForResult(intent, RC_PICK_FILES);
     }
 
-    private void exchangeAuthCodeForTokens(String authCode) {
+
+
+    private void exchangeAuthCodeForTokens(String authCode, String name, String email) {
         new Thread(() -> {
             try {
                 Log.d("TOKEN_EXCHANGE", "authCode = " + authCode);
@@ -138,16 +146,17 @@ public class AuthHelper {
                 BufferedReader reader = new BufferedReader(new InputStreamReader(is));
                 StringBuilder sb = new StringBuilder();
                 String line;
+
                 while ((line = reader.readLine()) != null) {
                     sb.append(line);
                 }
+
                 reader.close();
 
                 Log.d("TOKEN_EXCHANGE", "Response body: " + sb);
 
-                if (httpCode < 200 || httpCode >= 300) {
+                if (httpCode < 200 || httpCode >= 300)
                     return;
-                }
 
                 JSONObject json = new JSONObject(sb.toString());
                 String accessToken = json.optString("access_token", null);
@@ -156,6 +165,10 @@ public class AuthHelper {
                 Log.d("TOKEN_EXCHANGE", "access=" + accessToken + " refresh=" + refreshToken);
 
                 QtBridge.setTokens(accessToken, refreshToken);
+                QtBridge.setUserInfo(name, email);
+
+                QtBridge.onLoginFinished();
+
             } catch (Exception e) {
                 Log.e("TOKEN_EXCHANGE", "Error exchanging code", e);
             }
@@ -165,7 +178,9 @@ public class AuthHelper {
     private String readClientSecretFromFile() {
         try (InputStream is = activity.getAssets().open("secret.txt");
              BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
+
             return reader.readLine().trim();
+
         } catch (IOException e) {
             Log.e("SECRET_READ", "Failed to read client secret", e);
             return null;

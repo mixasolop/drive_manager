@@ -19,6 +19,8 @@ public class QtBridge {
 
     private static String accessToken = "";
     private static String refreshToken = "";
+    public static String userName = "";
+    public static String userEmail = "";
 
     private static AuthHelper authHelper;
     private static Activity activity;
@@ -120,6 +122,15 @@ public class QtBridge {
         }
     }
 
+
+    public static void setUserInfo(String name, String email) {
+        userName = name;
+        userEmail = email;
+    }
+
+    public static String getUserName() { return userName; }
+    public static String getUserEmail() { return userEmail; }
+
     public static String getFileName(String uriString) {
         Uri uri = Uri.parse(uriString);
         String result = null;
@@ -141,5 +152,8 @@ public class QtBridge {
         Uri uri = Uri.parse(uriString);
         return activity.getContentResolver().getType(uri);
     }
+
+    public static native void onLoginFinished();
+
 
 }

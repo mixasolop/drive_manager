@@ -38,7 +38,7 @@ ApplicationWindow  {
     }
 
     Connections{
-        target: cppBackend;
+        target: backend;
         onLoginSuccess:{
             stack.push("MainScreen.qml")
         }

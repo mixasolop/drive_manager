@@ -2,27 +2,124 @@
 #include <QObject>
 #include <QDebug>
 #include <QString>
+#include <QStringList>
 #include <QUrl>
 #include <QJniObject>
 #include <QUrlQuery>
 #include <QNetworkRequest>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
-
+#include <QRandomGenerator>
 #include <QtCore/QJniObject>
 #include <QtCore/QJniEnvironment>
+#include <QSqlTableModel>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlError>
+#include <QCryptographicHash>
+#include <math.h>
 
 class Backend : public QObject
 {
     Q_OBJECT
 
+signals:
+    void loginSuccess();
+    void loginFailed();
+    void userAddFailed();
+    void emailAddFailed();
+
 private:
     QNetworkAccessManager m_manager;
     QString m_accestoken;
     QString m_refreshtoken;
+    QString m_userName;
+    QString m_userEmail;
+    int curr_user_id = -1;
+
 public:
     explicit Backend(QObject *parent = nullptr) : QObject(parent) {
         qDebug() << "Backend initialized";
+    }
+
+    QByteArray generateSalt()
+    {
+        quint64 val = QRandomGenerator::system()->generate64();
+        return QByteArray::number(val, 16);
+    }
+
+    QByteArray hashPassword(const QString &password, const QByteArray &salt) {
+        return QCryptographicHash::hash(
+                   (password.toUtf8() + salt),
+                   QCryptographicHash::Sha3_512
+                   ).toHex();
+    }
+
+    bool usernameExists(const QString &username)
+    {
+        QSqlQuery q;
+        q.prepare("SELECT COUNT(*) FROM users WHERE username = :u");
+        q.bindValue(":u", username);
+        q.exec();
+        q.next();
+        return q.value(0).toInt() > 0;
+    }
+
+    bool addUser(const QString &username, const QString &password)
+    {
+        if (usernameExists(username)) {
+            qDebug() << "username already taken";
+            emit userAddFailed();
+            return false;
+        }
+
+        QByteArray salt = generateSalt();
+        QByteArray passwordHash = hashPassword(password, salt);
+
+        QSqlQuery query;
+        query.prepare(R"(
+            INSERT INTO users (username, salt, password_hash)
+            VALUES (:username, :salt, :hash)
+        )");
+
+        query.bindValue(":username", username);
+        query.bindValue(":salt", QString(salt));
+        query.bindValue(":hash", QString(passwordHash));
+
+        if (!query.exec()) {
+            emit userAddFailed();
+            return false;
+        }
+
+        return true;
+    }
+
+    int checkUser(const QString &username, const QString &password)
+    {
+        QSqlQuery query;
+        query.prepare("SELECT id, salt, password_hash FROM users WHERE username = :u");
+        query.bindValue(":u", username);
+        query.exec();
+
+        if (!query.next()) {
+            emit loginFailed();
+            return -1;
+        }
+
+        int id = query.value("id").toInt();
+        QByteArray salt = query.value("salt").toByteArray();
+        QByteArray hash = query.value("password_hash").toByteArray();
+
+        QByteArray check = hashPassword(password, salt);
+
+        if (check == hash) {
+            curr_user_id = id;
+            emit loginSuccess();
+            return id;
+        }
+
+        emit loginFailed();
+        return -1;
     }
 
     Q_INVOKABLE void startAuth() {
@@ -31,7 +128,6 @@ public:
             "startLogin",
             "()V"
             );
-
     }
 
     Q_INVOKABLE QString getAccessToken() {
@@ -50,22 +146,84 @@ public:
         return token.toString();
     }
 
-    Q_INVOKABLE void printAccess(){
-        qDebug() << "HERE IS THE ACCESS TOKEN: " << m_accestoken;
+    Q_INVOKABLE QString getUserName() {
+        QJniObject obj = QJniObject::callStaticObjectMethod(
+            "com/example/untitled/QtBridge",
+            "getUserName",
+            "()Ljava/lang/String;"
+            );
+        return obj.toString();
     }
 
-    Q_INVOKABLE void printTokens() {
-        m_accestoken = getAccessToken();
+    Q_INVOKABLE QString getUserEmail() {
+        QJniObject obj = QJniObject::callStaticObjectMethod(
+            "com/example/untitled/QtBridge",
+            "getUserEmail",
+            "()Ljava/lang/String;"
+            );
+        return obj.toString();
+    }
+
+    Q_INVOKABLE void onLoginFinished() {
+        m_accestoken   = getAccessToken();
         m_refreshtoken = getRefreshToken();
-        qDebug() << "ACCESS =" << m_accestoken;
+        m_userName     = getUserName();
+        m_userEmail    = getUserEmail();
+
+        qDebug() << "[LOGIN COMPLETED]";
+        qDebug() << "ACCESS ="  << m_accestoken;
         qDebug() << "REFRESH =" << m_refreshtoken;
+        qDebug() << "NAME ="    << m_userName;
+        qDebug() << "EMAIL ="   << m_userEmail;
+
+        addUserEmail(curr_user_id, m_userEmail, m_accestoken, m_refreshtoken);
     }
 
+    bool emailExists(int userId, const QString &email)
+    {
+        QSqlQuery q;
+        q.prepare("SELECT COUNT(*) FROM user_emails WHERE user_id = :id AND email = :email");
+        q.bindValue(":id", userId);
+        q.bindValue(":email", email);
+        q.exec();
+        q.next();
+        return q.value(0).toInt() > 0;
+    }
 
+    bool addUserEmail(int userId, const QString &email,
+                      const QString &accessToken,
+                      const QString &refreshToken)
+    {
+        if (emailExists(userId, email)) {
+            qDebug() << "email already exists!";
+            emit emailAddFailed();
+            return false;
+        }
 
+        QSqlQuery query;
+        query.prepare(R"(
+            INSERT INTO user_emails (user_id, email, access_token, refresh_token)
+            VALUES (:uid, :email, :at, :rt)
+        )");
 
+        query.bindValue(":uid", userId);
+        query.bindValue(":email", email);
+        query.bindValue(":at", accessToken);
+        query.bindValue(":rt", refreshToken);
 
-    Q_INVOKABLE void listfiles(){
+        if (!query.exec()) {
+            emit emailAddFailed();
+            return false;
+        }
+
+        return true;
+    }
+
+    Q_INVOKABLE void printTokens(){
+        qDebug() << "email: " << m_userEmail << "\nname: " << m_userName << "\naccess: " << m_accestoken << "\nrefresh: " << m_refreshtoken;
+    }
+
+    Q_INVOKABLE void listfiles() {
         QUrl url("https://www.googleapis.com/drive/v3/files");
         QUrlQuery q;
         q.addQueryItem("pageSize", "999");
@@ -76,18 +234,17 @@ public:
         QNetworkRequest req(url);
         req.setRawHeader("Authorization", QString("Bearer %1").arg(m_accestoken).toUtf8());
 
-
         QNetworkReply *reply = m_manager.get(req);
         connect(reply, &QNetworkReply::finished, this, [reply]() {
-            if(reply->error() != QNetworkReply::NoError){
+            if (reply->error() != QNetworkReply::NoError) {
                 qDebug() << "Error!----------------------" << reply->errorString();
-            }
-            else{
+            } else {
                 qDebug() << "HERE ARE THE FILES:" << reply->readAll();
             }
             reply->deleteLater();
         });
     }
+
     QByteArray readFileBytes(const QString &uri) {
         QJniObject juri = QJniObject::fromString(uri);
 
@@ -110,7 +267,8 @@ public:
         QByteArray buffer;
         buffer.resize(len);
 
-        env->GetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(buffer.data()));
+        env->GetByteArrayRegion(arr, 0, len,
+                                reinterpret_cast<jbyte*>(buffer.data()));
         return buffer;
     }
 
@@ -139,7 +297,6 @@ public:
 
         return mimeObj.toString();
     }
-
 
     Q_INVOKABLE void onFilesSelected(const QStringList &paths)
     {
@@ -181,8 +338,6 @@ public:
         });
     }
 
-
-
     Q_INVOKABLE void pickFiles() {
         QJniObject::callStaticMethod<void>(
             "com/example/untitled/QtBridge",
@@ -190,5 +345,4 @@ public:
             "()V"
             );
     }
-
 };
