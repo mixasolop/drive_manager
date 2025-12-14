@@ -20,6 +20,8 @@ qt_add_qml_module(appuntitled
         Main.qml
         SOURCES backend_jni.cpp
         QML_FILES Logger.qml
+        QML_FILES MainScreen.qml
+        QML_FILES Creator.qml
 )
 
 set_property(TARGET appuntitled APPEND PROPERTY

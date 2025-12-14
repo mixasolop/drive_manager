@@ -9,7 +9,7 @@ Page {
         color: "#181c2c"
 
         Text {
-            text: "Log In"
+            text: "Sing In"
             font.pixelSize: 42
             font.bold: true
             color: "#e4e4e4"
@@ -52,22 +52,6 @@ Page {
                     color: "white"
                     echoMode: TextInput.Password
                 }
-                Button {
-                    width: parent.width
-                    height: 48
-                    background: Rectangle { color: "transparent" }
-
-                    Text {
-                        text: "Don’t have an account yet??"
-                        color: "#3cb85a"
-                        font.underline: true
-                        horizontalAlignment: Text.AlignHCenter
-                        width: parent.width
-                    }
-                    onClicked: {
-                        stack.push("Creator.qml")
-                    }
-                }
 
                 Button {
                     width: parent.width
@@ -76,45 +60,16 @@ Page {
 
                     Text {
                         anchors.centerIn: parent
-                        text: "Log In"
+                        text: "Sing In"
                         color: "#e4e4e4"
                         font.pixelSize: 28
                         font.bold: true
                     }
                     onClicked: {
-                        backend.getuser(texts.text)
-                        backend.getpass(texts1.text)
-                        backend.checkUser(texts.text, texts1.text)
+                        backend.addUser(texts.text, texts1.text)
+                        stack.pop()
                     }
                 }
-
-            }
-        }
-        Text {
-            id: warninguser
-            x: 50
-            y: 295
-            width: 200
-            height: 19
-            visible: false
-            color: "#d50310"
-            text: qsTr("username or password is incorrect")
-            font.pixelSize: 12
-            font.italic: true
-            font.bold: true
-        }
-
-        Connections {
-            target: backend
-
-            function onLoginFailed() {
-                warninguser.visible = true
-            }
-
-            function onLoginSuccess() {
-                warninguser.visible = false
-                stack.pop()
-                stack.push("MainScreen.qml")
             }
         }
     }

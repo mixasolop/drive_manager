@@ -18,6 +18,13 @@
 #include <QSqlError>
 #include <QCryptographicHash>
 #include <math.h>
+#include <QEventLoop>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QFile>
+#include <QTextStream>
+#include <fstream>
 
 class Backend : public QObject
 {
@@ -28,6 +35,7 @@ signals:
     void loginFailed();
     void userAddFailed();
     void emailAddFailed();
+    void fileUploadSuccess(QString fileName);
 
 private:
     QNetworkAccessManager m_manager;
@@ -35,7 +43,11 @@ private:
     QString m_refreshtoken;
     QString m_userName;
     QString m_userEmail;
+    QString username;
+    QString password;
     int curr_user_id = -1;
+    QString m_nextPageToken;
+    int upload_curr_id = -1;
 
 public:
     explicit Backend(QObject *parent = nullptr) : QObject(parent) {
@@ -65,7 +77,7 @@ public:
         return q.value(0).toInt() > 0;
     }
 
-    bool addUser(const QString &username, const QString &password)
+    Q_INVOKABLE bool addUser(const QString &username, const QString &password)
     {
         if (usernameExists(username)) {
             qDebug() << "username already taken";
@@ -90,11 +102,11 @@ public:
             emit userAddFailed();
             return false;
         }
-
+        qDebug() << "USER ADDED!!";
         return true;
     }
 
-    int checkUser(const QString &username, const QString &password)
+    Q_INVOKABLE int checkUser(const QString &username, const QString &password)
     {
         QSqlQuery query;
         query.prepare("SELECT id, salt, password_hash FROM users WHERE username = :u");
@@ -120,6 +132,19 @@ public:
 
         emit loginFailed();
         return -1;
+    }
+
+    Q_INVOKABLE void set_upload_accesstoken(int access){
+        upload_curr_id = access;
+    }
+
+    Q_INVOKABLE void getuser(const QString t) {
+        username = t;
+        qDebug() << "username:" << username;
+    }
+    Q_INVOKABLE void getpass(const QString t) {
+        password = t;
+        qDebug() << "password:" << password;
     }
 
     Q_INVOKABLE void startAuth() {
@@ -219,33 +244,165 @@ public:
         return true;
     }
 
+    Q_INVOKABLE QStringList getUserEmails()
+    {
+        QStringList emails;
+
+        if (curr_user_id < 0)
+            return emails;
+
+        QSqlQuery q;
+        q.prepare("SELECT email FROM user_emails WHERE user_id = :id");
+        q.bindValue(":id", curr_user_id);
+
+        if (!q.exec())
+            return emails;
+
+        while (q.next())
+            emails << q.value(0).toString();
+
+        return emails;
+    }
+
+
     Q_INVOKABLE void printTokens(){
         qDebug() << "email: " << m_userEmail << "\nname: " << m_userName << "\naccess: " << m_accestoken << "\nrefresh: " << m_refreshtoken;
     }
 
-    Q_INVOKABLE void listfiles() {
+    Q_INVOKABLE QStringList listfiles(const QString &accessToken,
+                                      const QString &pageToken = "")
+    {
+        QStringList result;
+
         QUrl url("https://www.googleapis.com/drive/v3/files");
         QUrlQuery q;
-        q.addQueryItem("pageSize", "999");
-        q.addQueryItem("fields", "files(id, name)");
+        q.addQueryItem("pageSize", "12");
+        q.addQueryItem("fields", "nextPageToken,files(name)");
+
+        if (!pageToken.isEmpty())
+            q.addQueryItem("pageToken", pageToken);
 
         url.setQuery(q);
 
         QNetworkRequest req(url);
-        req.setRawHeader("Authorization", QString("Bearer %1").arg(m_accestoken).toUtf8());
+        req.setRawHeader("Authorization",
+                         QString("Bearer %1").arg(accessToken).toUtf8());
 
         QNetworkReply *reply = m_manager.get(req);
-        connect(reply, &QNetworkReply::finished, this, [reply]() {
-            if (reply->error() != QNetworkReply::NoError) {
-                qDebug() << "Error!----------------------" << reply->errorString();
-            } else {
-                qDebug() << "HERE ARE THE FILES:" << reply->readAll();
-            }
-            reply->deleteLater();
-        });
+
+        QEventLoop loop;
+        connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+
+        QByteArray data = reply->readAll();
+        reply->deleteLater();
+
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        QJsonObject obj = doc.object();
+
+        m_nextPageToken = obj["nextPageToken"].toString();
+
+        QJsonArray files = obj["files"].toArray();
+        for (const QJsonValue &v : files)
+            result << v.toObject()["name"].toString();
+
+        return result;
     }
 
-    QByteArray readFileBytes(const QString &uri) {
+    Q_INVOKABLE QString getNextPageToken() const {
+        return m_nextPageToken;
+    }
+
+    QString read_secret(){
+        std::ifstream file("..\\android\\src\\com\\example\\untitled\\secret.txt");
+        std::string str;
+        while (std::getline(file, str))
+        {
+            return QString::fromStdString(str);
+        }
+        return "";
+    }
+
+    Q_INVOKABLE QString getAccessById(int index)
+    {
+        if (curr_user_id < 0 || index < 0)
+            return "";
+
+        QSqlQuery q;
+        q.prepare(R"(
+        SELECT access_token, refresh_token
+        FROM user_emails
+        WHERE user_id = :uid
+        ORDER BY id
+        LIMIT 1 OFFSET :idx
+    )");
+        q.bindValue(":uid", curr_user_id);
+        q.bindValue(":idx", index);
+
+        if (!q.exec() || !q.next())
+            return "";
+
+        QString accessToken = q.value(0).toString();
+        QString refreshToken = q.value(1).toString();
+
+        QNetworkRequest testReq(QUrl("https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=" + accessToken));
+        QNetworkReply *testReply = m_manager.get(testReq);
+
+        QEventLoop loop;
+        connect(testReply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+
+        if (testReply->error() == QNetworkReply::NoError) {
+            testReply->deleteLater();
+            return accessToken;
+        }
+        testReply->deleteLater();
+
+
+
+
+        QNetworkRequest req(QUrl("https://oauth2.googleapis.com/token"));
+        req.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
+
+        QUrlQuery body;
+        body.addQueryItem("client_id",     "672191165584-lrc87gr0ip4ipra19s7k67tq8traagnm.apps.googleusercontent.com");
+        body.addQueryItem("client_secret", read_secret());
+        body.addQueryItem("refresh_token", refreshToken);
+        body.addQueryItem("grant_type",    "refresh_token");
+
+        QNetworkReply *reply = m_manager.post(req, body.toString(QUrl::FullyEncoded).toUtf8());
+
+        connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+
+        QByteArray resp = reply->readAll();
+        reply->deleteLater();
+
+        QJsonObject obj = QJsonDocument::fromJson(resp).object();
+        QString newAccessToken = obj["access_token"].toString();
+
+        if (newAccessToken.isEmpty())
+            return "";
+
+
+
+
+        QSqlQuery update;
+        update.prepare(R"(
+        UPDATE user_emails
+        SET access_token = :at
+        WHERE user_id = :uid AND refresh_token = :rt
+    )");
+        update.bindValue(":at", newAccessToken);
+        update.bindValue(":uid", curr_user_id);
+        update.bindValue(":rt", refreshToken);
+        update.exec();
+
+        return newAccessToken;
+    }
+
+
+        QByteArray readFileBytes(const QString &uri) {
         QJniObject juri = QJniObject::fromString(uri);
 
         QJniObject bytesObj = QJniObject::callStaticObjectMethod(
@@ -301,10 +458,10 @@ public:
     Q_INVOKABLE void onFilesSelected(const QStringList &paths)
     {
         for (const QString &p : paths)
-            uploadFileToDrive(p);
+            uploadFileToDrive(p, getAccessById(upload_curr_id));
     }
 
-    Q_INVOKABLE void uploadFileToDrive(const QString &uri) {
+    Q_INVOKABLE void uploadFileToDrive(const QString &uri, QString accessToken) {
         QString fileName = getFileName(uri);
         QString mimeType = getMimeType(uri);
         QByteArray fileData = readFileBytes(uri);
@@ -325,15 +482,18 @@ public:
         body += "--" + boundary.toUtf8() + "--";
 
         QNetworkRequest req(QUrl("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"));
-        req.setRawHeader("Authorization", QString("Bearer %1").arg(m_accestoken).toUtf8());
+        req.setRawHeader("Authorization", QString("Bearer %1").arg(accessToken).toUtf8());
         req.setRawHeader("Content-Type", QString("multipart/related; boundary=%1").arg(boundary).toUtf8());
         req.setHeader(QNetworkRequest::ContentLengthHeader, body.size());
 
         QNetworkReply *reply = m_manager.post(req, body);
 
-        connect(reply, &QNetworkReply::finished, this, [reply]() {
+        connect(reply, &QNetworkReply::finished, this, [this, reply, fileName]() {
             QByteArray resp = reply->readAll();
             qDebug() << resp;
+            if (reply->error() == QNetworkReply::NoError) {
+                emit fileUploadSuccess(fileName);
+            }
             reply->deleteLater();
         });
     }
