@@ -1,42 +1,37 @@
-# Google Drive Manager (Qt / C++ / Android)
+# Drive Manager – Google Drive Client (C++ / Qt)
 
-Google Drive Manager is a **native Android app built with Qt (C++/QML)** that lets users
-connect and manage **multiple Google Drive accounts** from one place.
+Drive Manager is an Android application built with Qt (C++/QML).
+It allows a user to connect multiple Google Drive accounts and manage files
+from one place.
 
-This project was built to gain hands-on experience with **C++ application logic,
-Android integration, OAuth authentication, and local storisation**.
+The project focuses mainly on backend logic and integration, not only UI.
 
----
+## How it works
+- C++ backend written using Qt 6
+- JNI bridge between C++ and Android Java code
+- Google Drive REST API
+- Local SQLite database for storage
 
-## Features
+## Main technical parts
 
-- Connect multiple Google Drive accounts
-- Google OAuth 2.0 authentication with access token refresh
-- File listing with pagination (to handle large accounts efficiently)
-- Upload local files to selected Drive accounts
-- Local data persistence using SQLite
+### OAuth 2.0 handling
+- Access and refresh tokens are stored locally
+- Access token is refreshed automatically when it expires
 
----
+### File listing
+- Files are loaded using paginated API requests
+- This avoids loading large file lists into memory at once
 
-## Tech stack
+### JNI integration
+- C++ backend communicates with Android Java using JNI
 
-- **C++ / QML (Qt 6)**
-- **Java (Android, JNI integration)**
-- **SQLite**
-- **Google Drive API & OAuth 2.0**
+### Local storage
+- SQLite database used to store users, accounts and tokens
+- Basic secure storage patterns applied
 
----
-
-## Notes
-
-- Application logic is implemented in C++ (Qt backend)
-- Android-specific functionality is accessed via a Qt–Java JNI bridge
-- Token lifecycle management is handled automatically
-
----
-
-## What I learned
-
-- Integrating C++ code with Android via JNI  
-- Working with OAuth flows and REST APIs  
-- Designing simple but scalable application logic
+## Technologies used
+- C++ (Qt 6, QML)
+- Java (Android)
+- SQLite
+- Google Drive API
+- OAuth 2.0
